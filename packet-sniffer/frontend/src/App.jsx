@@ -1,140 +1,290 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import Header from "./components/Header";
+import Footer from "./components/Footer";
+import LoginForm from "./components/LoginForm";
+import PacketControls from "./components/PacketControls";
+import VerticalPacketCarousel from "./components/VerticalPacketCarousel";
+import ProcessedPacketsTable from "./components/ProcessedPacketsTable";
 
 function App() {
   const [packets, setPackets] = useState([]);
+  const [processedPackets, setProcessedPackets] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [error, setError] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [captureMode, setCaptureMode] = useState("single");
+  const [currentAttack, setCurrentAttack] = useState("Benign Traffic");
+  const captureIntervalRef = useRef(null);
+
+  // API endpoint
+  const API_URL = "http://localhost:8000"; 
+
+  // CICIDS label mapping
+  const cicidsLabels = [
+    'BENIGN',
+    'DoS Hulk',
+    'DoS GoldenEye',
+    'DoS slowloris',
+    'DoS Slowhttptest',
+    'DDoS',
+    'PortScan',
+    'FTP-Patator',
+    'SSH-Patator',
+    'Web Attack – Brute Force',
+    'Web Attack – XSS',
+    'Web Attack – Sql Injection',
+    'Bot',
+    'Infiltration',
+    'Heartbleed'
+  ];
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    if (savedUser) {
+      setIsAuthenticated(true);
+      setUsername(savedUser);
+    }
+    
+    // Clean up interval on component unmount
+    return () => {
+      if (captureIntervalRef.current) {
+        clearInterval(captureIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (!username.trim()) return setLoginError("Username is required");
+    if (password.length < 6) return setLoginError("Password must be at least 6 characters");
+    setIsAuthenticated(true);
+    setLoginError("");
+    localStorage.setItem("user", username);
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUsername("");
+    setPassword("");
+    localStorage.removeItem("user");
+    setPackets([]);
+    setProcessedPackets([]);
+    stopCapture();
+  };
+
+  // Update processed packets handler
+  const updateProcessedPackets = (newProcessedPackets) => {
+    setProcessedPackets(prev => [...newProcessedPackets, ...prev]);
+  };
 
   const capturePackets = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("http://localhost:8000/capture");
+      // Fetch real packet data from the FastAPI backend
+      const response = await fetch(`${API_URL}/capture`);
+      
       if (!response.ok) {
-        throw new Error("Failed to fetch packets");
+        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
       }
-      const data = await response.json();
-      setPackets(data);
-    } catch (error) {
-      setError(error.message);
-      console.error("Error capturing packets:", error);
+      
+      const capturedFeatures = await response.json();
+      
+      // Transform the packet features into our packet format
+      const packetData = transformPacketData(capturedFeatures);
+      
+      // Randomly select a CICIDS label for demonstration
+      // In a real system, this would come from a ML model
+      const randomLabel = cicidsLabels[Math.floor(Math.random() * cicidsLabels.length)];
+      
+      // Map the label to a category for UI display
+      let attackCategory = "Benign Traffic";
+      if (randomLabel !== 'BENIGN') {
+        if (randomLabel.startsWith('DoS') || randomLabel === 'DDoS') {
+          attackCategory = "DoS/DDoS Attacks";
+        } else if (randomLabel === 'PortScan' || randomLabel.includes('Patator')) {
+          attackCategory = "Port Scanning & Brute Force";
+        } else if (randomLabel.startsWith('Web Attack')) {
+          attackCategory = "Web-Based Attacks";
+        } else {
+          attackCategory = "Other Exploits & Infiltrations";
+        }
+      }
+      
+      // Update the current attack type
+      setCurrentAttack(attackCategory);
+      
+      // Add to packets
+      setPackets(prev => [packetData, ...prev]);
+      
+      // Add to processed packets after simulated processing
+      setTimeout(() => {
+        setProcessedPackets(prev => [{
+          ...packetData,
+          timestamp: new Date().toLocaleTimeString(),
+          classification: randomLabel
+        }, ...prev]);
+      }, 5000); // After simulated 5-second processing
+      
+    } catch (err) {
+      console.error("Error capturing packets:", err);
+      setError(err.message || "Failed to capture network packets");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const downloadCSV = () => {
-    if (packets.length === 0) return;
+  // Transform packet features from backend format to our UI format
+  const transformPacketData = (featuresData) => {
+    // In a real implementation, this would parse the CICIDS features
+    // For now, we'll create a simplified version that maps to our UI needs
     
-    const csvHeader = Object.keys(packets[0]).join(",") + "\n";
-    const csvRows = packets.map(packet => 
-      Object.values(packet).map(value => 
-        value === null ? "" : String(value)
-      ).join(",")
+    // If we received multiple packets, just use the first one
+    const features = Array.isArray(featuresData) ? featuresData[0] : featuresData;
+    
+    // Extract IP information from features
+    // This is simplified - in a real implementation we'd actually extract this from the packet data
+    return {
+      src_ip: features.src_ip || "192.168.1." + Math.floor(Math.random() * 255),
+      src_port: features["Destination Port"] || Math.floor(Math.random() * 65535),
+      dst_ip: features.dst_ip || "10.0.0." + Math.floor(Math.random() * 255),
+      dst_port: features["Destination Port"] || 80,
+      protocol: features.protocol || "TCP",
+      length: features["Total Length of Fwd Packets"] || Math.floor(Math.random() * 1500) + 40,
+      flags: features["SYN Flag Count"] > 0 ? "SYN" : 
+             features["ACK Flag Count"] > 0 ? "ACK" : 
+             features["FIN Flag Count"] > 0 ? "FIN" : "NONE",
+      ttl: Math.floor(Math.random() * 64) + 1 // TTL isn't included in CICIDS, so randomize
+    };
+  };
+
+  const startContinuousCapture = () => {
+    // Clear existing packets when starting capture
+    setPackets([]);
+    setProcessedPackets([]);
+    setCurrentAttack("Benign Traffic");
+    
+    setIsCapturing(true);
+    
+    // Clear any existing intervals first
+    if (captureIntervalRef.current) {
+      clearInterval(captureIntervalRef.current);
+    }
+    
+    // Immediately capture once
+    capturePackets();
+    
+    // Then set up interval based on mode
+    if (captureMode === "continuous") {
+      // Real-time mode captures every second
+      captureIntervalRef.current = setInterval(capturePackets, 1000);
+    } else if (captureMode === "batch") {
+      // Batch mode captures 5 packets every 5 seconds
+      captureIntervalRef.current = setInterval(async () => {
+        for (let i = 0; i < 5; i++) {
+          await capturePackets();
+        }
+      }, 5000);
+    }
+  };
+
+  const stopCapture = () => {
+    setIsCapturing(false);
+    if (captureIntervalRef.current) {
+      clearInterval(captureIntervalRef.current);
+      captureIntervalRef.current = null;
+    }
+  };
+
+  const downloadCSV = () => {
+    if (processedPackets.length === 0) return;
+    const csvHeader = Object.keys(processedPackets[0]).join(",") + "\n";
+    const csvRows = processedPackets.map(packet =>
+      Object.values(packet).map(val => val === null ? "" : String(val).replace(/,/g, ";")).join(",")
     ).join("\n");
     const csvContent = "data:text/csv;charset=utf-8," + csvHeader + csvRows;
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "packets.csv");
+    link.setAttribute("download", "cicids_processed_packets.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  const clearPackets = () => {
+    setPackets([]);
+    setProcessedPackets([]);
+    setCurrentAttack("Benign Traffic");
+  };
+
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-blue-600 text-white p-4 shadow-md">
-        <div className="container mx-auto">
-          <h1 className="text-2xl font-bold">Network Packet Capturer</h1>
-          <p className="text-blue-100">Analyzes network traffic using scapy and npcap.</p>
-        </div>
-      </header>
-
-      {/* Main Content */}
+    <div className="flex flex-col min-h-screen bg-gray-900 text-gray-100">
+      <Header 
+        isAuthenticated={isAuthenticated} 
+        handleLogout={handleLogout}
+        startCapture={startContinuousCapture}
+        isCapturing={isCapturing}
+      />
       <main className="container mx-auto flex-grow p-4">
-        <div className="mb-6 bg-white p-6 rounded-lg shadow-md">
-          <div className="flex flex-wrap items-center gap-4 mb-4">
-            <button 
-              onClick={capturePackets} 
-              disabled={isLoading}
-              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition duration-200 disabled:bg-blue-300"
-            >
-              {isLoading ? "Capturing..." : "Capture Packets"}
-            </button>
-            
-            <button 
-              onClick={downloadCSV} 
-              disabled={packets.length === 0 || isLoading}
-              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition duration-200 disabled:bg-green-300"
-            >
-              Download CSV
-            </button>
-            
-            {packets.length > 0 && (
-              <span className="text-gray-600 font-medium">
-                {packets.length} packets captured
-              </span>
-            )}
-          </div>
-
-          {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-              Error: {error}
+        {!isAuthenticated ? (
+          <LoginForm
+            username={username}
+            setUsername={setUsername}
+            password={password}
+            setPassword={setPassword}
+            showPassword={showPassword}
+            setShowPassword={setShowPassword}
+            loginError={loginError}
+            handleLogin={handleLogin}
+          />
+        ) : (
+          <>
+            <div className="mb-6 bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-6">
+              <h2 className="text-xl font-bold mb-4 text-gray-100">
+                Network Packet Capture & CICIDS Analysis
+              </h2>
+              {error && (
+                <div className="bg-red-900/30 border border-red-500 text-red-300 p-3 rounded-md mb-4">
+                  <p className="font-medium">Error capturing packets:</p>
+                  <p>{error}</p>
+                </div>
+              )}
+              <PacketControls
+                capturePackets={capturePackets}
+                startContinuousCapture={startContinuousCapture}
+                stopCapture={stopCapture}
+                downloadCSV={downloadCSV}
+                clearPackets={clearPackets}
+                isLoading={isLoading}
+                isCapturing={isCapturing}
+                packets={packets}
+                captureMode={captureMode}
+                setCaptureMode={setCaptureMode}
+              />
+              
+              {/* Vertical Packet Processing Carousel */}
+              <VerticalPacketCarousel 
+                packets={packets}
+                isCapturing={isCapturing}
+                currentAttack={currentAttack}
+                updateProcessedPackets={updateProcessedPackets}
+              />
+              
+              {/* Processed Packets Results Table */}
+              <ProcessedPacketsTable 
+                processedPackets={processedPackets}
+              />
             </div>
-          )}
-
-          {isLoading && (
-            <div className="flex justify-center my-8">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          )}
-
-          {packets.length > 0 && !isLoading && (
-            <div className="overflow-x-auto">
-              <table className="min-w-full bg-white border border-gray-200">
-                <thead className="bg-gray-100">
-                  <tr>
-                    {Object.keys(packets[0]).map((key, i) => (
-                      <th key={i} className="py-2 px-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider border-b">
-                        {key}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {packets.map((packet, i) => (
-                    <tr key={i} className={i % 2 === 0 ? "bg-gray-50" : "bg-white"}>
-                      {Object.values(packet).map((value, j) => (
-                        <td key={j} className="py-2 px-3 text-sm text-gray-500 border-r">
-                          {value !== null ? String(value) : ""}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {!isLoading && packets.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
-              No packets captured yet. Click the "Capture Packets" button to start.
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </main>
-
-      {/* Footer */}
-      <footer className="bg-gray-800 text-white p-4 mt-auto">
-        <div className="container mx-auto text-center">
-          <p>© {new Date().getFullYear()} Network Packet Analyzer.</p>
-          <p className="text-gray-400 text-sm mt-1">
-            
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
