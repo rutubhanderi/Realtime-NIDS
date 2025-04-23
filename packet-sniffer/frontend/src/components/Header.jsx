@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Activity, LogOut, AlertTriangle, Database, Settings } from "lucide-react";
+import { Activity, LogOut, FileInput, Database, Settings } from "lucide-react";
+
 
 const Header = ({ isAuthenticated, handleLogout, startCapture, isCapturing }) => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -11,8 +12,8 @@ const Header = ({ isAuthenticated, handleLogout, startCapture, isCapturing }) =>
           <div className="flex items-center space-x-3">
             <Activity className="text-blue-400" size={28} />
             <div>
-              <h1 className="text-xl font-bold text-white">NetCap Pro</h1>
-              <p className="text-xs text-gray-400">Advanced Network Packet Analysis</p>
+              <h1 className="text-xl font-bold text-white">NIDS</h1>
+              <p className="text-xs text-gray-400">Anamoly based Network Intrusion Detection</p>
             </div>
           </div>
 
@@ -50,14 +51,14 @@ const Header = ({ isAuthenticated, handleLogout, startCapture, isCapturing }) =>
                 </span>
               </a>
               <a 
-                href="#threats" 
+                href="#demo" 
                 className={`text-gray-300 hover:text-white border-b-2 pb-1 ${
-                  activeTab === "threats" ? "border-blue-500 text-white" : "border-transparent"
+                  activeTab === "demo" ? "border-blue-500 text-white" : "border-transparent"
                 }`}
-                onClick={() => setActiveTab("threats")}
+                onClick={() => setActiveTab("demo")}
               >
                 <span className="flex items-center">
-                  <AlertTriangle size={14} className="mr-1" /> Threats
+                  <FileInput size={14} className="mr-1" /> Demo
                 </span>
               </a>
               <a 
