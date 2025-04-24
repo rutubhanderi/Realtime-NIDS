@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { Upload, FileText, AlertCircle } from "lucide-react";
 
-const CSVUpload = ({ onDataLoaded, setIsLoading, setError }) => {
+const CSVUpload = ({ onDataLoaded, setIsLoading, setError, apiUrl }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState("");
   const [fileError, setFileError] = useState("");
@@ -16,65 +16,7 @@ const CSVUpload = ({ onDataLoaded, setIsLoading, setError }) => {
     setIsDragging(false);
   };
 
-  const processCSVData = (text) => {
-    try {
-      // Split the CSV text into lines
-      const lines = text.trim().split("\n");
-      
-      // Parse header line to get column names
-      const headers = lines[0].split(",").map(header => header.trim());
-      
-      // Process each data row
-      const processedData = [];
-      
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line.trim()) continue;
-        
-        // Split by comma but handle quoted values properly
-        const values = line.split(",").map(val => val.trim());
-        
-        // Create object from headers and values
-        const packet = {};
-        
-        for (let j = 0; j < headers.length; j++) {
-          // Handle potential value type conversion
-          const value = values[j];
-          packet[headers[j]] = value;
-        }
-        
-        // Create standard format expected by the app
-        const standardizedPacket = {
-          src_ip: packet.src_ip || packet.source_ip || "192.168.1.1",
-          src_port: packet.src_port || packet.source_port || "0",
-          dst_ip: packet.dst_ip || packet.destination_ip || "192.168.1.2",
-          dst_port: packet.dst_port || packet.destination_port || "0",
-          protocol: packet.protocol || "TCP",
-          length: packet.length || packet["Total Length of Fwd Packets"] || "0",
-          flags: packet.flags || (
-            packet["SYN Flag Count"] > 0 ? "SYN" : 
-            packet["ACK Flag Count"] > 0 ? "ACK" : 
-            packet["FIN Flag Count"] > 0 ? "FIN" : "NONE"
-          ),
-          ttl: packet.ttl || "64",
-          timestamp: packet.timestamp || new Date().toLocaleTimeString(),
-          classification: packet.classification || 
-                         packet.prediction || 
-                         packet.label ||
-                         packet.Predicted_Label || "BENIGN"
-        };
-        
-        processedData.push(standardizedPacket);
-      }
-      
-      return processedData;
-    } catch (error) {
-      console.error("Error processing CSV:", error);
-      throw new Error("Could not process CSV data. Please check the file format.");
-    }
-  };
-
-  const handleFileUpload = (file) => {
+  const handleFileUpload = async (file) => {
     if (!file) return;
     
     setIsLoading(true);
@@ -88,37 +30,38 @@ const CSVUpload = ({ onDataLoaded, setIsLoading, setError }) => {
       return;
     }
     
-    // Read the file
-    const reader = new FileReader();
-    
-    reader.onload = (e) => {
-      try {
-        const fileContent = e.target.result;
-        const processedData = processCSVData(fileContent);
-        
-        if (processedData.length === 0) {
-          setFileError("No valid data found in the CSV file.");
-          setIsLoading(false);
-          return;
-        }
-        
-        // Send data to parent component
-        onDataLoaded(processedData);
-      } catch (error) {
-        setFileError(error.message);
-        setError("CSV parsing error: " + error.message);
-      } finally {
-        setIsLoading(false);
+    try {
+      // Create FormData to send file to backend
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      // Send file to backend for prediction
+      const response = await fetch(`${apiUrl}/predict-csv`, {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
       }
-    };
-    
-    reader.onerror = () => {
-      setFileError("Failed to read file.");
-      setError("Failed to read CSV file");
+      
+      const predictedData = await response.json();
+      
+      if (predictedData.length === 0) {
+        setFileError("No valid data returned from prediction.");
+        setIsLoading(false);
+        return;
+      }
+      
+      // Send predicted data to parent component
+      onDataLoaded(predictedData);
+    } catch (error) {
+      console.error("Error processing CSV:", error);
+      setFileError(error.message || "Could not process CSV file.");
+      setError("CSV processing error: " + error.message);
+    } finally {
       setIsLoading(false);
-    };
-    
-    reader.readAsText(file);
+    }
   };
 
   const handleDrop = (e) => {

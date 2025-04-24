@@ -74,7 +74,7 @@ const PacketAnalyzerTable = ({ packets, processedPackets, isCapturing, currentAt
   const getLabelClass = (label) => {
     if (!label) return "bg-gray-900/30 text-gray-400 border-gray-500";
     
-    if (label === 'BENIGN') {
+    if (label === 'Benign Traffic') {
       return "bg-green-900/30 text-green-400 border-green-500";
     } else if (label.startsWith('DoS') || label === 'DDoS') {
       return "bg-red-900/30 text-red-400 border-red-500";

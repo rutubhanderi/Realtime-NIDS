@@ -89,12 +89,12 @@ function App() {
           const prediction = data.Predicted_Label;
 
           let attackCategory = "Benign Traffic";
-          if (prediction !== "BENIGN") {
+          if (prediction !== "Benign Traffic") {
             if (prediction.startsWith("DoS") || prediction === "DDoS") {
-              attackCategory = "DoS/DDoS Attacks";
+              attackCategory = "DoS Attacks";
             } else if (prediction === "PortScan" || prediction.includes("Patator")) {
               attackCategory = "Port Scanning & Brute Force";
-            } else if (prediction.startsWith("Web Attack")) {
+            } else if (prediction.startsWith("Web-Based Attacks")) {
               attackCategory = "Web-Based Attacks";
             } else {
               attackCategory = "Other Exploits & Infiltrations";
@@ -194,24 +194,15 @@ function App() {
   };
 
   const handleCSVDataLoaded = (data) => {
-    // Process the data similar to how we handle live packets
-    const transformedPackets = [];
-    const processedData = [];
+    // Update state with predicted packets
+    setPackets(data);
+    setProcessedPackets(data);
     
-    // Reset state
-    setPackets([]);
-    setProcessedPackets([]);
-    setCurrentAttack("Benign Traffic");
-    
-    // Process each packet from CSV
+    // Determine attack category
+    let attackCategory = "Benign Traffic";
     data.forEach(packet => {
-      transformedPackets.push(packet);
-      
       const prediction = packet.classification;
-      
-      // Determine attack category based on classification
-      let attackCategory = "Benign Traffic";
-      if (prediction && prediction !== "BENIGN") {
+      if (prediction && prediction !== "Benign Traffic") {
         if (prediction.startsWith("DoS") || prediction === "DDoS") {
           attackCategory = "DoS/DDoS Attacks";
         } else if (prediction === "PortScan" || prediction.includes("Patator")) {
@@ -222,21 +213,8 @@ function App() {
           attackCategory = "Other Exploits & Infiltrations";
         }
       }
-      
-      // Update current attack if this is a non-benign packet
-      if (attackCategory !== "Benign Traffic") {
-        setCurrentAttack(attackCategory);
-      }
-      
-      processedData.push({
-        ...packet,
-        timestamp: packet.timestamp || new Date().toLocaleTimeString(),
-      });
     });
-    
-    // Update state with all packets at once
-    setPackets(transformedPackets);
-    setProcessedPackets(processedData);
+    setCurrentAttack(attackCategory);
   };
 
   return (
@@ -314,6 +292,7 @@ function App() {
                   onDataLoaded={handleCSVDataLoaded}
                   setIsLoading={setIsLoading}
                   setError={setError}
+                  apiUrl={API_URL}
                 />
               )}
               

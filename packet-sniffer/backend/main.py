@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.models import load_model
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from scapy.all import AsyncSniffer, IP, TCP, UDP
 from pydantic import BaseModel
@@ -10,6 +10,7 @@ import joblib
 import logging
 import asyncio
 from queue import Queue
+import io
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -65,22 +66,26 @@ class Packet(BaseModel):
     class Config:
         fields = {feature.replace(" ", "").replace("/", "").replace(".", "_"): feature for feature in FEATURES}
 
-# Define max packets to capture
-MAX_PACKETS = 50  # Updated to capture 50 packets
+# Define max packets for live capture
+MAX_PACKETS = 50
 current_packet_count = 0
 capture_complete = False
 active_sniffer = None
-
-# Initialize packet queue and CSV storage
 packet_queue = Queue()
 csv_data = []
 
 def extract_features(packet):
-    """Extract CICIDS2017-compatible features from a packet."""
+    """Extract CICIDS2017-compatible features from a packet for live capture."""
     try:
         features = {feature: 0 for feature in FEATURES}
         
         # Basic packet attributes
+        if IP in packet:
+            features["src_ip"] = packet[IP].src
+            features["dst_ip"] = packet[IP].dst
+            features["ttl"] = packet[IP].ttl
+        if hasattr(packet, 'sport'):
+            features["Source Port"] = int(packet.sport)
         if hasattr(packet, 'dport'):
             features["Destination Port"] = int(packet.dport)
         features["Flow Duration"] = float(packet.time)
@@ -98,6 +103,7 @@ def extract_features(packet):
         features["Max Packet Length"] = len(packet)
         features["Packet Length Mean"] = float(len(packet))
         features["Average Packet Size"] = float(len(packet))
+        features["protocol"] = "TCP" if TCP in packet else "UDP" if UDP in packet else "UNKNOWN"
         
         # TCP-specific features
         if TCP in packet:
@@ -116,6 +122,41 @@ def extract_features(packet):
         logger.error(f"Error extracting features: {str(e)}")
         return {feature: 0 for feature in FEATURES}
 
+def predict_packet(features):
+    """Predict the attack type for a single packet."""
+    try:
+        df_packet = pd.DataFrame([features])
+        for feature in FEATURES:
+            if feature not in df_packet.columns:
+                df_packet[feature] = 0
+        df_packet = df_packet[FEATURES]
+        X = df_packet.values[:, selected_indices]
+        X_scaled = scaler.transform(X)
+        X_scaled = X_scaled.reshape(X_scaled.shape[0], X_scaled.shape[1], 1)
+        y_pred_prob = model.predict(X_scaled, verbose=0)
+        y_pred = np.argmax(y_pred_prob, axis=1)
+        y_pred_label = label_encoder.inverse_transform(y_pred)[0]
+        return y_pred_label
+    except Exception as e:
+        logger.error(f"Prediction error: {str(e)}")
+        return "Error"
+
+def format_packet_data(features, prediction):
+    """Format packet data for frontend compatibility."""
+    return {
+        "src_ip": features.get("src_ip", "192.168.1." + str(np.random.randint(1, 255))),
+        "dst_ip": features.get("dst_ip", "10.0.0." + str(np.random.randint(1, 255))),
+        "Source Port": features.get("Source Port", np.random.randint(1024, 65535)),
+        "Destination Port": features.get("Destination Port", 80),
+        "protocol": features.get("protocol", "TCP"),
+        "Total Length of Fwd Packets": features.get("Total Length of Fwd Packets", np.random.randint(40, 1500)),
+        "SYN Flag Count": features.get("SYN Flag Count", 0),
+        "ACK Flag Count": features.get("ACK Flag Count", 0),
+        "FIN Flag Count": features.get("FIN Flag Count", 0),
+        "Predicted_Label": prediction,
+        "timestamp": pd.Timestamp.now().strftime('%H:%M:%S')
+    }
+
 async def save_to_csv_periodically():
     """Periodically save captured packets and predictions to CSV."""
     while True:
@@ -127,7 +168,6 @@ async def save_to_csv_periodically():
             except Exception as e:
                 logger.error(f"Error saving to CSV: {str(e)}")
         
-        # If we've reached our packet limit, no need to keep this task running
         if capture_complete:
             logger.info("Capture complete, saving final CSV")
             if csv_data:
@@ -139,52 +179,23 @@ async def save_to_csv_periodically():
                     logger.error(f"Error saving final CSV: {str(e)}")
             break
             
-        await asyncio.sleep(10)  # Save every 10 seconds
-
-def predict_packet(features):
-    """Predict the attack type for a single packet."""
-    try:
-        # Convert features to DataFrame
-        df_packet = pd.DataFrame([features])
-        
-        # Ensure all required features are present
-        for feature in FEATURES:
-            if feature not in df_packet.columns:
-                df_packet[feature] = 0
-        
-        # Select only the features used by the model
-        df_packet = df_packet[FEATURES]
-        X = df_packet.values[:, selected_indices]
-        
-        # Preprocess
-        X_scaled = scaler.transform(X)
-        X_scaled = X_scaled.reshape(X_scaled.shape[0], X_scaled.shape[1], 1)
-        
-        # Predict
-        y_pred_prob = model.predict(X_scaled, verbose=0)
-        y_pred = np.argmax(y_pred_prob, axis=1)
-        y_pred_label = label_encoder.inverse_transform(y_pred)[0]
-        
-        return y_pred_label
-    except Exception as e:
-        logger.error(f"Prediction error: {str(e)}")
-        return "Error"
+        await asyncio.sleep(10)
 
 def packet_callback(packet):
-    """Callback function to process each captured packet."""
+    """Callback function to process each captured packet during live capture."""
     global current_packet_count, capture_complete, active_sniffer
     
     try:
         if current_packet_count < MAX_PACKETS:
             features = extract_features(packet)
             prediction = predict_packet(features)
-            features["Predicted_Label"] = prediction
-            packet_queue.put(features)
-            csv_data.append(features)
+            packet_data = format_packet_data(features, prediction)
+            packet_queue.put(packet_data)
+            csv_data.append(packet_data)
             current_packet_count += 1
             logger.info(f"Processed packet {current_packet_count}/{MAX_PACKETS} with prediction: {prediction}")
             
-            # Check if we've reached our limit
+
             if current_packet_count >= MAX_PACKETS:
                 capture_complete = True
                 if active_sniffer:
@@ -196,14 +207,13 @@ def packet_callback(packet):
 
 def start_packet_capture(interface="Wi-Fi"):
     """Start capturing packets up to the MAX_PACKETS limit."""
-    global current_packet_count, capture_complete, active_sniffer
+    global current_packet_count, capture_complete, active_sniffer, csv_data
     
-    # Reset counters
     current_packet_count = 0
     capture_complete = False
+    csv_data = []
     
     try:
-        # Start the sniffer
         active_sniffer = AsyncSniffer(filter="ip", prn=packet_callback, store=False, iface=interface)
         active_sniffer.start()
         logger.info(f"Started packet sniffer, capturing up to {MAX_PACKETS} packets")
@@ -214,20 +224,76 @@ def start_packet_capture(interface="Wi-Fi"):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the application but don't start capture until requested."""
-    logger.info("Application started, ready to capture packets on request")
+    """Initialize the application."""
+    logger.info("Application started, ready to capture packets or process CSV uploads")
 
 @app.post("/start-capture")
 async def start_capture():
-    """Endpoint to start the packet capture."""
+    """Endpoint to start live packet capture."""
     try:
         result = start_packet_capture()
-        # Start CSV saver
         asyncio.create_task(save_to_csv_periodically())
         return result
     except Exception as e:
         logger.error(f"Error in start_capture endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/predict-csv")
+async def predict_csv(file: UploadFile = File(...)):
+    """Endpoint to predict attack labels from uploaded CSV."""
+    try:
+        if not file.filename.lower().endswith('.csv'):
+            raise HTTPException(status_code=400, detail="Only CSV files are supported")
+        
+        content = await file.read()
+        df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+        
+        # Ensure all required features are present
+        for feature in FEATURES:
+            if feature not in df.columns:
+                df[feature] = 0
+        
+        df = df[FEATURES]
+        X = df.values[:, selected_indices]
+        X_scaled = scaler.transform(X)
+        X_scaled = X_scaled.reshape(X_scaled.shape[0], X_scaled.shape[1], 1)
+        y_pred_prob = model.predict(X_scaled, verbose=0)
+        y_pred = np.argmax(y_pred_prob, axis=1)
+        y_pred_labels = label_encoder.inverse_transform(y_pred)
+        df['Predicted_Label'] = y_pred_labels
+        
+        
+        # response_data = []
+        # for _, row in df.iterrows():
+        #     packet = {
+        #         'src_ip': row.get('src_ip', "192.168.1." + str(np.random.randint(1, 255))),
+        #         'src_port': row.get('Source Port', np.random.randint(1024, 65535)),
+        #         'dst_ip': row.get('dst_ip', "10.0.0." + str(np.random.randint(1, 255))),
+        #         'dst_port': row.get('Destination Port', 80),
+        #         'protocol': row.get('protocol', 'TCP'),
+        #         'length': row.get('Total Length of Fwd Packets', np.random.randint(40, 1500)),
+        #         'flags': (
+        #             'SYN' if row.get('SYN Flag Count', 0) > 0 else
+        #             'ACK' if row.get('ACK Flag Count', 0) > 0 else
+        #             'FIN' if row.get('FIN Flag Count', 0) > 0 else 'NONE'
+        #         ),
+        #         'ttl': row.get('ttl', np.random.randint(1, 64)),
+        #         'classification': row['Predicted_Label'],
+        #         'timestamp': pd.Timestamp.now().strftime('%H:%M:%S')
+        #     }
+        #     response_data.append(packet)
+        
+        # Save predictions to CSV
+        try:
+            pd.DataFrame(df).to_csv("uploaded_packets_with_predictions.csv", index=False)
+            logger.info(f"Saved {len(df)} CSV predictions to uploaded_packets_with_predictions.csv")
+        except Exception as e:
+            logger.error(f"Error saving CSV predictions: {str(e)}")
+        
+        return df
+    except Exception as e:
+        logger.error(f"Error predicting CSV: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process CSV: {str(e)}")
 
 @app.get("/capture-status")
 async def get_capture_status():
@@ -240,7 +306,7 @@ async def get_capture_status():
 
 @app.websocket("/ws/packets")
 async def websocket_packets(websocket: WebSocket):
-    """WebSocket endpoint to stream packet predictions in real-time."""
+    """WebSocket endpoint to stream packet predictions in real-time for live capture."""
     await websocket.accept()
     logger.info("WebSocket connected")
     try:
@@ -249,7 +315,6 @@ async def websocket_packets(websocket: WebSocket):
                 packet_data = packet_queue.get()
                 await websocket.send_json(packet_data)
             
-            # Send status update every second
             await websocket.send_json({
                 "type": "status_update",
                 "current_count": current_packet_count,
@@ -257,7 +322,6 @@ async def websocket_packets(websocket: WebSocket):
                 "complete": capture_complete
             })
             
-            # If capture is complete and queue is empty, we can exit
             if capture_complete and packet_queue.empty():
                 await websocket.send_json({
                     "type": "capture_complete",
@@ -265,7 +329,7 @@ async def websocket_packets(websocket: WebSocket):
                 })
                 break
                 
-            await asyncio.sleep(0.1)  # Prevent busy-waiting
+            await asyncio.sleep(0.1)
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")
     finally:
