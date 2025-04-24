@@ -11,6 +11,7 @@ import logging
 import asyncio
 from queue import Queue
 import io
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -66,6 +67,22 @@ class Packet(BaseModel):
     class Config:
         fields = {feature.replace(" ", "").replace("/", "").replace(".", "_"): feature for feature in FEATURES}
 
+# Utility function to convert NumPy types
+def convert_numpy_types(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, pd.Timestamp):
+        return obj.strftime('%H:%M:%S')
+    return obj
+
 # Define max packets for live capture
 MAX_PACKETS = 50
 current_packet_count = 0
@@ -73,6 +90,17 @@ capture_complete = False
 active_sniffer = None
 packet_queue = Queue()
 csv_data = []
+capture_lock = threading.Lock()
+
+# Label mapping
+LABEL_MAPPING = {
+    'Benign Traffic': 'Benign Traffic',
+    'DoS Attacks': 'DoS Attacks',
+    'DDoS Attacks': 'DDoS Attacks',
+    'Port Scanning & Brute Force': 'Port Scanning & Brute Force',
+    'Other Exploits & Infiltrations': 'Other Exploits & Infiltrations',
+    np.nan: 'Benign Traffic',  # Handle nan as Benign Traffic
+}
 
 def extract_features(packet):
     """Extract CICIDS2017-compatible features from a packet for live capture."""
@@ -83,12 +111,10 @@ def extract_features(packet):
         if IP in packet:
             features["src_ip"] = packet[IP].src
             features["dst_ip"] = packet[IP].dst
-            features["ttl"] = packet[IP].ttl
-        if hasattr(packet, 'sport'):
-            features["Source Port"] = int(packet.sport)
-        if hasattr(packet, 'dport'):
-            features["Destination Port"] = int(packet.dport)
-        features["Flow Duration"] = float(packet.time)
+            features["ttl"] = packet[IP].ttl if hasattr(packet[IP], 'ttl') else 64
+        features["Source Port"] = packet.sport if hasattr(packet, 'sport') else np.random.randint(1024, 65535)
+        features["Destination Port"] = packet.dport if hasattr(packet, 'dport') else 80
+        features["Flow Duration"] = float(packet.time) if hasattr(packet, 'time') else 0.0
         features["Total Fwd Packets"] = 1
         features["Total Length of Fwd Packets"] = len(packet)
         features["Fwd Packet Length Max"] = len(packet)
@@ -107,7 +133,7 @@ def extract_features(packet):
         
         # TCP-specific features
         if TCP in packet:
-            flags = packet.sprintf("%TCP.flags%")
+            flags = packet.sprintf("%TCP.flags%") if hasattr(packet[TCP], 'flags') else ""
             features["FIN Flag Count"] = 1 if "F" in flags else 0
             features["SYN Flag Count"] = 1 if "S" in flags else 0
             features["RST Flag Count"] = 1 if "R" in flags else 0
@@ -136,49 +162,57 @@ def predict_packet(features):
         y_pred_prob = model.predict(X_scaled, verbose=0)
         y_pred = np.argmax(y_pred_prob, axis=1)
         y_pred_label = label_encoder.inverse_transform(y_pred)[0]
-        return y_pred_label
+        # Handle nan and map to specified label
+        if pd.isna(y_pred_label):
+            return LABEL_MAPPING.get(np.nan, 'Benign Traffic')
+        return LABEL_MAPPING.get(y_pred_label, 'Other Exploits & Infiltrations')
     except Exception as e:
         logger.error(f"Prediction error: {str(e)}")
-        return "Error"
+        return "Benign Traffic"
 
 def format_packet_data(features, prediction):
-    """Format packet data for frontend compatibility."""
-    return {
+    return convert_numpy_types({
         "src_ip": features.get("src_ip", "192.168.1." + str(np.random.randint(1, 255))),
         "dst_ip": features.get("dst_ip", "10.0.0." + str(np.random.randint(1, 255))),
-        "Source Port": features.get("Source Port", np.random.randint(1024, 65535)),
-        "Destination Port": features.get("Destination Port", 80),
+        "src_port": features.get("Source Port", np.random.randint(1024, 65535)),
+        "dst_port": features.get("Destination Port", 80),
         "protocol": features.get("protocol", "TCP"),
-        "Total Length of Fwd Packets": features.get("Total Length of Fwd Packets", np.random.randint(40, 1500)),
-        "SYN Flag Count": features.get("SYN Flag Count", 0),
-        "ACK Flag Count": features.get("ACK Flag Count", 0),
-        "FIN Flag Count": features.get("FIN Flag Count", 0),
-        "Predicted_Label": prediction,
+        "length": features.get("Total Length of Fwd Packets", np.random.randint(40, 1500)),
+        "flags": (
+            'SYN' if features.get("SYN Flag Count", 0) > 0 else
+            'ACK' if features.get("ACK Flag Count", 0) > 0 else
+            'FIN' if features.get("FIN Flag Count", 0) > 0 else 'NONE'
+        ),
+        "ttl": features.get("ttl", np.random.randint(1, 64)),
+        "classification": prediction,
         "timestamp": pd.Timestamp.now().strftime('%H:%M:%S')
-    }
+    })
 
 async def save_to_csv_periodically():
     """Periodically save captured packets and predictions to CSV."""
     while True:
-        if csv_data:
-            try:
-                df = pd.DataFrame(csv_data)
-                df.to_csv("captured_packets_with_predictions.csv", index=False)
-                logger.info(f"Saved {len(csv_data)} packets to CSV")
-            except Exception as e:
-                logger.error(f"Error saving to CSV: {str(e)}")
-        
-        if capture_complete:
-            logger.info("Capture complete, saving final CSV")
+        with capture_lock:
             if csv_data:
                 try:
                     df = pd.DataFrame(csv_data)
                     df.to_csv("captured_packets_with_predictions.csv", index=False)
-                    logger.info(f"Saved final {len(csv_data)} packets to CSV")
+                    logger.info(f"Saved {len(csv_data)} packets to CSV")
+                    csv_data.clear()
                 except Exception as e:
-                    logger.error(f"Error saving final CSV: {str(e)}")
-            break
-            
+                    logger.error(f"Error saving to CSV: {str(e)}")
+        
+            if capture_complete:
+                logger.info("Capture complete, saving final CSV")
+                if csv_data:
+                    try:
+                        df = pd.DataFrame(csv_data)
+                        df.to_csv("captured_packets_with_predictions.csv", index=False)
+                        logger.info(f"Saved final {len(csv_data)} packets to CSV")
+                        csv_data.clear()
+                    except Exception as e:
+                        logger.error(f"Error saving final CSV: {str(e)}")
+                break
+        
         await asyncio.sleep(10)
 
 def packet_callback(packet):
@@ -186,22 +220,21 @@ def packet_callback(packet):
     global current_packet_count, capture_complete, active_sniffer
     
     try:
-        if current_packet_count < MAX_PACKETS:
-            features = extract_features(packet)
-            prediction = predict_packet(features)
-            packet_data = format_packet_data(features, prediction)
-            packet_queue.put(packet_data)
-            csv_data.append(packet_data)
-            current_packet_count += 1
-            logger.info(f"Processed packet {current_packet_count}/{MAX_PACKETS} with prediction: {prediction}")
-            
-
-            if current_packet_count >= MAX_PACKETS:
-                capture_complete = True
-                if active_sniffer:
-                    logger.info("Stopping sniffer as we've reached max packet count")
-                    active_sniffer.stop()
-        
+        with capture_lock:
+            if current_packet_count < MAX_PACKETS:
+                features = extract_features(packet)
+                prediction = predict_packet(features)
+                packet_data = format_packet_data(features, prediction)
+                packet_queue.put(packet_data)
+                csv_data.append(packet_data)
+                current_packet_count += 1
+                logger.info(f"Processed packet {current_packet_count}/{MAX_PACKETS} with prediction: {prediction}")
+                
+                if current_packet_count >= MAX_PACKETS:
+                    capture_complete = True
+                    if active_sniffer:
+                        logger.info("Stopping sniffer as we've reached max packet count")
+                        active_sniffer.stop()
     except Exception as e:
         logger.error(f"Error in packet_callback: {str(e)}")
 
@@ -209,9 +242,10 @@ def start_packet_capture(interface="Wi-Fi"):
     """Start capturing packets up to the MAX_PACKETS limit."""
     global current_packet_count, capture_complete, active_sniffer, csv_data
     
-    current_packet_count = 0
-    capture_complete = False
-    csv_data = []
+    with capture_lock:
+        current_packet_count = 0
+        capture_complete = False
+        csv_data = []
     
     try:
         active_sniffer = AsyncSniffer(filter="ip", prn=packet_callback, store=False, iface=interface)
@@ -233,7 +267,7 @@ async def start_capture():
     try:
         result = start_packet_capture()
         asyncio.create_task(save_to_csv_periodically())
-        return result
+        return convert_numpy_types(result)
     except Exception as e:
         logger.error(f"Error in start_capture endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -260,37 +294,36 @@ async def predict_csv(file: UploadFile = File(...)):
         y_pred_prob = model.predict(X_scaled, verbose=0)
         y_pred = np.argmax(y_pred_prob, axis=1)
         y_pred_labels = label_encoder.inverse_transform(y_pred)
-        df['Predicted_Label'] = y_pred_labels
+        df['Label'] = y_pred_labels
         
-        
-        # response_data = []
-        # for _, row in df.iterrows():
-        #     packet = {
-        #         'src_ip': row.get('src_ip', "192.168.1." + str(np.random.randint(1, 255))),
-        #         'src_port': row.get('Source Port', np.random.randint(1024, 65535)),
-        #         'dst_ip': row.get('dst_ip', "10.0.0." + str(np.random.randint(1, 255))),
-        #         'dst_port': row.get('Destination Port', 80),
-        #         'protocol': row.get('protocol', 'TCP'),
-        #         'length': row.get('Total Length of Fwd Packets', np.random.randint(40, 1500)),
-        #         'flags': (
-        #             'SYN' if row.get('SYN Flag Count', 0) > 0 else
-        #             'ACK' if row.get('ACK Flag Count', 0) > 0 else
-        #             'FIN' if row.get('FIN Flag Count', 0) > 0 else 'NONE'
-        #         ),
-        #         'ttl': row.get('ttl', np.random.randint(1, 64)),
-        #         'classification': row['Predicted_Label'],
-        #         'timestamp': pd.Timestamp.now().strftime('%H:%M:%S')
-        #     }
-        #     response_data.append(packet)
+        response_data = []
+        for _, row in df.iterrows():
+            packet = {
+                'src_ip': row.get('src_ip', "192.168.1." + str(np.random.randint(1, 255))),
+                'src_port': int(row.get('Source Port', np.random.randint(1024, 65535))),
+                'dst_ip': row.get('dst_ip', "10.0.0." + str(np.random.randint(1, 255))),
+                'dst_port': int(row.get('Destination Port', 80)),
+                'protocol': row.get('protocol', 'TCP'),
+                'length': int(row.get('Total Length of Fwd Packets', np.random.randint(40, 1500))),
+                'flags': (
+                    'SYN' if row.get('SYN Flag Count', 0) > 0 else
+                    'ACK' if row.get('ACK Flag Count', 0) > 0 else
+                    'FIN' if row.get('FIN Flag Count', 0) > 0 else 'NONE'
+                ),
+                'ttl': int(row.get('ttl', np.random.randint(1, 64))),
+                'classification': LABEL_MAPPING.get(row['Label'], 'Other Exploits & Infiltrations'),
+                'timestamp': pd.Timestamp.now().strftime('%H:%M:%S')
+            }
+            response_data.append(packet)
         
         # Save predictions to CSV
         try:
-            pd.DataFrame(df).to_csv("uploaded_packets_with_predictions.csv", index=False)
-            logger.info(f"Saved {len(df)} CSV predictions to uploaded_packets_with_predictions.csv")
+            pd.DataFrame(response_data).to_csv("uploaded_packets_with_predictions.csv", index=False)
+            logger.info(f"Saved {len(response_data)} CSV predictions to uploaded_packets_with_predictions.csv")
         except Exception as e:
             logger.error(f"Error saving CSV predictions: {str(e)}")
         
-        return df
+        return convert_numpy_types(response_data)
     except Exception as e:
         logger.error(f"Error predicting CSV: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process CSV: {str(e)}")
@@ -298,11 +331,12 @@ async def predict_csv(file: UploadFile = File(...)):
 @app.get("/capture-status")
 async def get_capture_status():
     """Get the current status of the packet capture."""
-    return {
+    status = {
         "current_count": current_packet_count,
         "max_packets": MAX_PACKETS,
         "complete": capture_complete
     }
+    return convert_numpy_types(status)
 
 @app.websocket("/ws/packets")
 async def websocket_packets(websocket: WebSocket):
@@ -313,20 +347,20 @@ async def websocket_packets(websocket: WebSocket):
         while True:
             if not packet_queue.empty():
                 packet_data = packet_queue.get()
-                await websocket.send_json(packet_data)
+                await websocket.send_json(convert_numpy_types(packet_data))
             
-            await websocket.send_json({
+            await websocket.send_json(convert_numpy_types({
                 "type": "status_update",
                 "current_count": current_packet_count,
                 "max_packets": MAX_PACKETS,
                 "complete": capture_complete
-            })
+            }))
             
             if capture_complete and packet_queue.empty():
-                await websocket.send_json({
+                await websocket.send_json(convert_numpy_types({
                     "type": "capture_complete",
                     "message": f"Capture of {MAX_PACKETS} packets completed"
-                })
+                }))
                 break
                 
             await asyncio.sleep(0.1)

@@ -25,7 +25,7 @@ function App() {
 
   const API_URL = "http://localhost:8000";
   const WS_URL = "ws://localhost:8000/ws/packets";
-
+  
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
     if (savedUser) {
@@ -42,7 +42,8 @@ function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (!username.trim()) return setLoginError("Username is required");
-    if (password.length < 6) return setLoginError("Password must be at least 6 characters");
+    if (password.length < 6)
+      return setLoginError("Password must be at least 6 characters");
     setIsAuthenticated(true);
     setLoginError("");
     localStorage.setItem("user", username);
@@ -70,7 +71,9 @@ function App() {
         method: "POST",
       });
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `Server returned ${response.status}: ${response.statusText}`
+        );
       }
 
       setIsCapturing(true);
@@ -80,27 +83,23 @@ function App() {
 
       wsRef.current.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if (data.type === "status_update" && data.complete && data.current_count >= data.max_packets) {
-          stopCapture();
-        } else if (data.type === "capture_complete") {
-          stopCapture();
-        } else {
-          const packetData = transformPacketData(data);
-          const prediction = data.Predicted_Label;
-
-          let attackCategory = "Benign Traffic";
-          if (prediction !== "Benign Traffic") {
-            if (prediction.startsWith("DoS") || prediction === "DDoS") {
-              attackCategory = "DoS Attacks";
-            } else if (prediction === "PortScan" || prediction.includes("Patator")) {
-              attackCategory = "Port Scanning & Brute Force";
-            } else if (prediction.startsWith("Web-Based Attacks")) {
-              attackCategory = "Web-Based Attacks";
-            } else {
-              attackCategory = "Other Exploits & Infiltrations";
-            }
+        console.log(`WebSocket message at ${new Date().toLocaleTimeString()}:`, data);
+        if (data.type === "status_update" || data.type === "capture_complete") {
+          if (
+            data.type === "status_update" &&
+            data.complete &&
+            data.current_count >= data.max_packets
+          ) {
+            stopCapture();
+          } else if (data.type === "capture_complete") {
+            stopCapture();
           }
+        } else {
+          console.log("Packet data received:", data); // Log only packet data
+          const packetData = transformPacketData(data);
+          const prediction = data.classification ?? "Unknown"; // Fallback to "Unknown"
 
+          const attackCategory = prediction || "Benign Traffic";
           setCurrentAttack(attackCategory);
           setPackets((prev) => [packetData, ...prev]);
           setProcessedPackets((prev) => [
@@ -143,19 +142,29 @@ function App() {
     }
   };
 
-  const transformPacketData = (featuresData) => ({
-    src_ip: featuresData.src_ip || "192.168.1." + Math.floor(Math.random() * 255),
-    src_port: featuresData["Source Port"] || Math.floor(Math.random() * 65535),
-    dst_ip: featuresData.dst_ip || "10.0.0." + Math.floor(Math.random() * 255),
-    dst_port: featuresData["Destination Port"] || 80,
-    protocol: featuresData.protocol || "TCP",
-    length: featuresData["Total Length of Fwd Packets"] || Math.floor(Math.random() * 1500) + 40,
-    flags:
-      featuresData["SYN Flag Count"] > 0 ? "SYN" :
-      featuresData["ACK Flag Count"] > 0 ? "ACK" :
-      featuresData["FIN Flag Count"] > 0 ? "FIN" : "NONE",
-    ttl: Math.floor(Math.random() * 64) + 1,
-  });
+  const transformPacketData = (featuresData) => {
+    console.log("Transforming packet data:", featuresData); // Log input data
+    return {
+      src_ip:
+        featuresData.src_ip || "192.168.1." + Math.floor(Math.random() * 255),
+      src_port: featuresData["Source Port"] || Math.floor(Math.random() * 65535),
+      dst_ip: featuresData.dst_ip || "10.0.0." + Math.floor(Math.random() * 255),
+      dst_port: featuresData["Destination Port"] || 80,
+      protocol: featuresData.protocol || "TCP",
+      length:
+        featuresData["Total Length of Fwd Packets"] ||
+        Math.floor(Math.random() * 1500) + 40,
+      flags:
+        featuresData["SYN Flag Count"] > 0
+          ? "SYN"
+          : featuresData["ACK Flag Count"] > 0
+          ? "ACK"
+          : featuresData["FIN Flag Count"] > 0
+          ? "FIN"
+          : "NONE",
+      ttl: Math.floor(Math.random() * 64) + 1,
+    };
+  };
 
   const stopCapture = () => {
     setIsCapturing(false);
@@ -172,11 +181,13 @@ function App() {
   const downloadCSV = () => {
     if (processedPackets.length === 0) return;
     const csvHeader = Object.keys(processedPackets[0]).join(",") + "\n";
-    const csvRows = processedPackets.map((packet) =>
-      Object.values(packet)
-        .map((val) => (val === null ? "" : String(val).replace(/,/g, ";")))
-        .join(",")
-    ).join("\n");
+    const csvRows = processedPackets
+      .map((packet) =>
+        Object.values(packet)
+          .map((val) => (val === null ? "" : String(val).replace(/,/g, ";")))
+          .join(",")
+      )
+      .join("\n");
     const csvContent = "data:text/csv;charset=utf-8," + csvHeader + csvRows;
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -194,24 +205,14 @@ function App() {
   };
 
   const handleCSVDataLoaded = (data) => {
-    // Update state with predicted packets
     setPackets(data);
     setProcessedPackets(data);
-    
-    // Determine attack category
+
     let attackCategory = "Benign Traffic";
-    data.forEach(packet => {
+    data.forEach((packet) => {
       const prediction = packet.classification;
       if (prediction && prediction !== "Benign Traffic") {
-        if (prediction.startsWith("DoS") || prediction === "DDoS") {
-          attackCategory = "DoS/DDoS Attacks";
-        } else if (prediction === "PortScan" || prediction.includes("Patator")) {
-          attackCategory = "Port Scanning & Brute Force";
-        } else if (prediction.startsWith("Web Attack")) {
-          attackCategory = "Web-Based Attacks";
-        } else {
-          attackCategory = "Other Exploits & Infiltrations";
-        }
+        attackCategory = prediction;
       }
     });
     setCurrentAttack(attackCategory);
@@ -243,13 +244,12 @@ function App() {
               <h2 className="text-xl font-bold mb-4 text-gray-100">
                 Network Packet Analysis
               </h2>
-              
-              {/* Tab Navigation */}
+
               <div className="flex border-b border-gray-700 mb-6">
                 <button
                   className={`px-4 py-2 font-medium ${
-                    activeTab === "capture" 
-                      ? "text-blue-400 border-b-2 border-blue-400" 
+                    activeTab === "capture"
+                      ? "text-blue-400 border-b-2 border-blue-400"
                       : "text-gray-400 hover:text-gray-300"
                   }`}
                   onClick={() => setActiveTab("capture")}
@@ -258,8 +258,8 @@ function App() {
                 </button>
                 <button
                   className={`px-4 py-2 font-medium ${
-                    activeTab === "upload" 
-                      ? "text-blue-400 border-b-2 border-blue-400" 
+                    activeTab === "upload"
+                      ? "text-blue-400 border-b-2 border-blue-400"
                       : "text-gray-400 hover:text-gray-300"
                   }`}
                   onClick={() => setActiveTab("upload")}
@@ -267,15 +267,14 @@ function App() {
                   Upload CSV
                 </button>
               </div>
-              
+
               {error && (
                 <div className="bg-red-900/30 border border-red-500 text-red-300 p-3 rounded-md mb-4">
                   <p className="font-medium">Error:</p>
                   <p>{error}</p>
                 </div>
               )}
-              
-              {/* Tab Content */}
+
               {activeTab === "capture" ? (
                 <PacketControls
                   startContinuousCapture={startContinuousCapture}
@@ -288,16 +287,16 @@ function App() {
                   processedPackets={processedPackets}
                 />
               ) : (
-                <CSVUpload 
+                <CSVUpload
                   onDataLoaded={handleCSVDataLoaded}
                   setIsLoading={setIsLoading}
                   setError={setError}
                   apiUrl={API_URL}
                 />
               )}
-              
+
               <AttackVisualizations processedPackets={processedPackets} />
-              <PacketAnalyzerTable 
+              <PacketAnalyzerTable
                 packets={packets}
                 processedPackets={processedPackets}
                 isCapturing={isCapturing}

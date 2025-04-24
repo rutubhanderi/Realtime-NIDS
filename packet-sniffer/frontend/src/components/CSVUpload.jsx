@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
-import { Upload, FileText, AlertCircle } from "lucide-react";
+import { Upload, FileText, AlertCircle, Trash2 } from "lucide-react";
 
-const CSVUpload = ({ onDataLoaded, setIsLoading, setError, apiUrl }) => {
+const CSVUpload = ({ onDataLoaded, setIsLoading, setError, apiUrl, clearPackets }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState("");
   const [fileError, setFileError] = useState("");
@@ -85,9 +85,26 @@ const CSVUpload = ({ onDataLoaded, setIsLoading, setError, apiUrl }) => {
     fileInputRef.current.click();
   };
 
+  const handleReset = () => {
+    setFileName("");
+    setFileError("");
+    clearPackets();
+  };
+
   return (
     <div className="mb-8">
-      <h3 className="text-lg font-bold text-gray-200 mb-3">Upload Network Traffic Data</h3>
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-lg font-bold text-gray-200">Upload Network Traffic Data</h3>
+        {fileName && (
+          <button
+            onClick={handleReset}
+            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md flex items-center transition-all"
+          >
+            <Trash2 size={18} className="mr-2" />
+            Reset Data
+          </button>
+        )}
+      </div>
       
       <div
         className={`border-2 border-dashed p-6 rounded-lg text-center transition-colors ${
