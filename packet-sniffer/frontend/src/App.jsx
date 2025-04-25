@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
-import LoginForm from "./components/LoginForm";
 import PacketControls from "./components/PacketControls";
 import PacketAnalyzerTable from "./components/PacketAnalyzerTable";
 import AttackVisualizations from "./components/AttackVisualizations";
@@ -17,11 +16,6 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [error, setError] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [loginError, setLoginError] = useState("");
   const [currentAttack, setCurrentAttack] = useState("Benign Traffic");
   const [activeTab, setActiveTab] = useState("capture"); // 'capture' or 'upload'
   const [csvUploaded, setCsvUploaded] = useState(false);
@@ -33,39 +27,11 @@ function App() {
   const WS_URL = "ws://localhost:8000/ws/packets";
   
   useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
-      setIsAuthenticated(true);
-      setUsername(savedUser);
-    }
-
     return () => {
       if (wsRef.current) wsRef.current.close();
       if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
     };
   }, []);
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (!username.trim()) return setLoginError("Username is required");
-    if (password.length < 6)
-      return setLoginError("Password must be at least 6 characters");
-    setIsAuthenticated(true);
-    setLoginError("");
-    localStorage.setItem("user", username);
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setUsername("");
-    setPassword("");
-    localStorage.removeItem("user");
-    setPackets([]);
-    setProcessedPackets([]);
-    stopCapture();
-    setCsvUploaded(false);
-    setUploadedFileName("");
-  };
 
   const startContinuousCapture = async () => {
     setCsvUploaded(false);
@@ -571,93 +537,75 @@ function generateRecommendations(attackStats) {
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-900 text-gray-100">
-      <Header
-        isAuthenticated={isAuthenticated}
-        handleLogout={handleLogout}
-        startCapture={startContinuousCapture}
-        isCapturing={isCapturing}
+      <Header 
+        
       />
       <main className="container mx-auto flex-grow p-4">
-        {!isAuthenticated ? (
-          <LoginForm
-            username={username}
-            setUsername={setUsername}
-            password={password}
-            setPassword={setPassword}
-            showPassword={showPassword}
-            setShowPassword={setShowPassword}
-            loginError={loginError}
-            handleLogin={handleLogin}
-          />
-        ) : (
-          <>
-            <div className="mb-6 bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-6">
-              <h2 className="text-xl font-bold mb-4 text-gray-100">
-                Network Packet Analysis
-              </h2>
+        <div className="mb-6 bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-6">
+          <h2 className="text-xl font-bold mb-4 text-gray-100">
+            Network Packet Analysis
+          </h2>
 
-              <div className="flex border-b border-gray-700 mb-6">
-                <button
-                  className={`px-4 py-2 font-medium ${
-                    activeTab === "capture"
-                      ? "text-blue-400 border-b-2 border-blue-400"
-                      : "text-gray-400 hover:text-gray-300"
-                  }`}
-                  onClick={() => setActiveTab("capture")}
-                >
-                  Live Capture
-                </button>
-                <button
-                  className={`px-4 py-2 font-medium ${
-                    activeTab === "upload"
-                      ? "text-blue-400 border-b-2 border-blue-400"
-                      : "text-gray-400 hover:text-gray-300"
-                  }`}
-                  onClick={() => setActiveTab("upload")}
-                >
-                  Upload CSV
-                </button>
-              </div>
+          <div className="flex border-b border-gray-700 mb-6">
+            <button
+              className={`px-4 py-2 font-medium ${
+                activeTab === "capture"
+                  ? "text-blue-400 border-b-2 border-blue-400"
+                  : "text-gray-400 hover:text-gray-300"
+              }`}
+              onClick={() => setActiveTab("capture")}
+            >
+              Live Capture
+            </button>
+            <button
+              className={`px-4 py-2 font-medium ${
+                activeTab === "upload"
+                  ? "text-blue-400 border-b-2 border-blue-400"
+                  : "text-gray-400 hover:text-gray-300"
+              }`}
+              onClick={() => setActiveTab("upload")}
+            >
+              Upload CSV
+            </button>
+          </div>
 
-              {error && (
-                <div className="bg-red-900/30 border border-red-500 text-red-300 p-3 rounded-md mb-4">
-                  <p className="font-medium">Error:</p>
-                  <p>{error}</p>
-                </div>
-              )}
-
-              {activeTab === "capture" ? (
-                <PacketControls
-                  startContinuousCapture={startContinuousCapture}
-                  stopCapture={stopCapture}
-                  isLoading={isLoading}
-                  isCapturing={isCapturing}
-                  packets={packets}
-                />
-              ) : (
-                <CSVUpload
-                  onDataLoaded={handleCSVDataLoaded}
-                  setIsLoading={setIsLoading}
-                  setError={setError}
-                  apiUrl={API_URL}
-                  clearPackets={clearPackets}
-                />
-              )}
-
-              {/* Shared controls for both modes */}
-              {processedPackets.length > 0 && renderSharedControls()}
-
-              {/* Data visualizations */}
-              <AttackVisualizations processedPackets={processedPackets} />
-              <PacketAnalyzerTable
-                packets={packets}
-                processedPackets={processedPackets}
-                isCapturing={isCapturing}
-                currentAttack={currentAttack}
-              />
+          {error && (
+            <div className="bg-red-900/30 border border-red-500 text-red-300 p-3 rounded-md mb-4">
+              <p className="font-medium">Error:</p>
+              <p>{error}</p>
             </div>
-          </>
-        )}
+          )}
+
+          {activeTab === "capture" ? (
+            <PacketControls
+              startContinuousCapture={startContinuousCapture}
+              stopCapture={stopCapture}
+              isLoading={isLoading}
+              isCapturing={isCapturing}
+              packets={packets}
+            />
+          ) : (
+            <CSVUpload
+              onDataLoaded={handleCSVDataLoaded}
+              setIsLoading={setIsLoading}
+              setError={setError}
+              apiUrl={API_URL}
+              clearPackets={clearPackets}
+            />
+          )}
+
+          {/* Shared controls for both modes */}
+          {processedPackets.length > 0 && renderSharedControls()}
+
+          {/* Data visualizations */}
+          <AttackVisualizations processedPackets={processedPackets} />
+          <PacketAnalyzerTable
+            packets={packets}
+            processedPackets={processedPackets}
+            isCapturing={isCapturing}
+            currentAttack={currentAttack}
+          />
+        </div>
       </main>
       <Footer />
     </div>
