@@ -164,18 +164,13 @@ const CSVUpload = ({ onDataLoaded, setIsLoading, setError, apiUrl, clearPackets 
         </div>
         
         <div className="flex gap-3">
-          <button
-            onClick={handleButtonClick}
-            className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm"
-          >
-            Upload Another
-          </button>
+          
           
           <button
             onClick={handleReset}
             className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-md text-sm"
           >
-            Reset
+            Remove
           </button>
         </div>
       </div>
