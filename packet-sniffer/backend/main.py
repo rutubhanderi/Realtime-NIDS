@@ -188,33 +188,6 @@ def format_packet_data(features, prediction):
         "timestamp": pd.Timestamp.now().strftime('%H:%M:%S')
     })
 
-async def save_to_csv_periodically():
-    """Periodically save captured packets and predictions to CSV."""
-    while True:
-        with capture_lock:
-            if csv_data:
-                try:
-                    df = pd.DataFrame(csv_data)
-                    df.to_csv("captured_packets_with_predictions.csv", index=False)
-                    logger.info(f"Saved {len(csv_data)} packets to CSV")
-                    csv_data.clear()
-                except Exception as e:
-                    logger.error(f"Error saving to CSV: {str(e)}")
-        
-            if capture_complete:
-                logger.info("Capture complete, saving final CSV")
-                if csv_data:
-                    try:
-                        df = pd.DataFrame(csv_data)
-                        df.to_csv("captured_packets_with_predictions.csv", index=False)
-                        logger.info(f"Saved final {len(csv_data)} packets to CSV")
-                        csv_data.clear()
-                    except Exception as e:
-                        logger.error(f"Error saving final CSV: {str(e)}")
-                break
-        
-        await asyncio.sleep(10)
-
 def packet_callback(packet):
     """Callback function to process each captured packet during live capture."""
     global current_packet_count, capture_complete, active_sniffer
@@ -266,7 +239,6 @@ async def start_capture():
     """Endpoint to start live packet capture."""
     try:
         result = start_packet_capture()
-        asyncio.create_task(save_to_csv_periodically())
         return convert_numpy_types(result)
     except Exception as e:
         logger.error(f"Error in start_capture endpoint: {str(e)}")
@@ -315,13 +287,6 @@ async def predict_csv(file: UploadFile = File(...)):
                 'timestamp': pd.Timestamp.now().strftime('%H:%M:%S')
             }
             response_data.append(packet)
-        
-        # Save predictions to CSV
-        try:
-            pd.DataFrame(response_data).to_csv("uploaded_packets_with_predictions.csv", index=False)
-            logger.info(f"Saved {len(response_data)} CSV predictions to uploaded_packets_with_predictions.csv")
-        except Exception as e:
-            logger.error(f"Error saving CSV predictions: {str(e)}")
         
         return convert_numpy_types(response_data)
     except Exception as e:
