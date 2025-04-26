@@ -8,7 +8,7 @@ const Header = () => {
           <div className="flex items-center space-x-3">
             <Activity className="text-blue-400" size={28} />
             <div>
-              <h1 className="text-xl font-bold text-white ">NetGuard</h1>
+              <h1 className="text-xl font-bold text-white ">NetSift</h1>
               <p className="text-xs text-gray-400">Network Intrusion Detection System</p>
             </div>
           </div>

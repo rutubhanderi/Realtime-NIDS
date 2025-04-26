@@ -374,7 +374,7 @@ const exportLogs = () => {
     doc.setFontSize(9);
     doc.setTextColor(120, 120, 120);
     doc.text(
-      "Network Security Report - NetGuard v1.0",
+      "Network Security Report - NetSift v1.0",
       14,
       footerY
     );
