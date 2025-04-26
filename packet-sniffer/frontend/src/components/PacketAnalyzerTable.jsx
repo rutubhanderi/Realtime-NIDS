@@ -108,7 +108,7 @@ const PacketAnalyzerTable = ({ processedPackets, isCapturing, currentAttack }) =
             <Shield size={28} className="text-blue-400" />
           </div>
           <h3 className="text-lg font-medium text-gray-300 mb-2">No Network Traffic Captured</h3>
-          <p>Start real-time packet capture to analyze network traffic with CICIDS ML model</p>
+          <p>Start real-time packet capture to analyze network traffic</p>
         </div>
         {isCapturing && (
           <div className="flex justify-center mt-4">
