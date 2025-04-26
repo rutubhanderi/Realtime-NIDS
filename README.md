@@ -1,227 +1,193 @@
-Network Intrusion Detection System (NIDS) using CNN-LSTM
-Overview
+# 🚀 Network Intrusion Detection System (NIDS) using CNN-LSTM
 
-This project implements a Network Intrusion Detection System (NIDS) that combines Convolutional Neural Networks (CNN) and Long Short-Term Memory (LSTM) networks to classify network traffic into different attack categories. The system can process both live network traffic and uploaded CSV files containing network flow data.
-Features
+## 📖 Overview
+This project implements a **Network Intrusion Detection System (NIDS)** by combining **Convolutional Neural Networks (CNN)** and **Long Short-Term Memory (LSTM)** networks to classify network traffic into different categories.  
+The system supports both **live traffic analysis** and **CSV file uploads** for offline predictions.
 
-    Hybrid CNN-LSTM Model: Combines spatial feature extraction (CNN) with temporal pattern recognition (LSTM)
+---
 
-    Real-time Packet Analysis: Captures and analyzes live network traffic
+## ✨ Features
+- **Hybrid CNN-LSTM Model**: Extracts spatial and temporal patterns for robust attack detection.
+- **Real-time Packet Analysis**: Captures and classifies live network traffic.
+- **CSV Upload Support**: Predicts attacks from pre-recorded network flow data.
+- **WebSocket Integration**: Real-time packet updates during live capture.
+- **Attack Classification**:
+  - Benign Traffic
+  - DoS Attacks
+  - DDoS Attacks
+  - Port Scanning & Brute Force
+  - Other Exploits & Infiltrations
 
-    CSV Upload Support: Processes pre-recorded network flow data
+---
 
-    WebSocket Integration: Provides real-time updates during live capture
+## 🛠️ Technical Stack
 
-    Attack Classification: Identifies five main attack categories:
+### Backend
+- FastAPI
+- TensorFlow / Keras
+- Scapy
+- Pandas / Numpy
+- Joblib
 
-        Benign Traffic
+### Frontend
+- React
+- Vite
+- WebSocket
 
-        DoS Attacks
+---
 
-        DDoS Attacks
+## 📚 Dataset
+- **Source**: Modified version of **CICIDS2017**.
+- **Details**:
+  - 746,117 network flow records
+  - 78 features
+  - 5 attack categories (plus benign traffic)
 
-        Port Scanning & Brute Force
+---
 
-        Other Exploits & Infiltrations
+## 🧠 Model Architecture
+- **Input Layer**: Accepts 50 selected features.
+- **CNN Layers**:
+  - Conv1D (32 filters, kernel size=3)
+  - Batch Normalization
+  - MaxPooling
+  - Dropout (0.3)
+- **LSTM Layer**: 32 units with Dropout (0.4)
+- **Dense Layers**:
+  - Dense (32 units) with L2 regularization
+  - Batch Normalization
+  - Dropout (0.5)
+- **Output Layer**: Softmax activation for multi-class classification.
 
-Technical Stack
-Backend
+---
 
-    FastAPI: High-performance web framework for building APIs
+## 📈 Performance
+- **Test Accuracy**: 94.8%
+- **Precision (weighted)**: 97%
+- **Recall (weighted)**: 96%
+- **F1-Score (weighted)**: 96%
 
-    TensorFlow/Keras: Deep learning framework for the CNN-LSTM model
+---
 
-    Scapy: Packet manipulation and capture
+## 🚀 Installation
 
-    Pandas/Numpy: Data processing and manipulation
+### Prerequisites
+- Python 3.8+
+- Node.js 14+
+- TensorFlow 2.x
 
-    Joblib: Model persistence
+---
 
-Frontend
+## ⚙️ Backend Setup
 
-    React: JavaScript library for building user interfaces
+```bash
+# Clone the repository
+git clone <your-repo-link>
 
-    Vite: Fast frontend build tool
-
-    WebSocket: Real-time communication with the backend
-
-Dataset
-
-The model was trained on a modified version of the CICIDS2017 dataset, which contains:
-
-    746,117 network flow records
-
-    78 network flow features
-
-    5 attack categories (plus benign traffic)
-
-Model Architecture
-
-The optimized CNN-LSTM model consists of:
-
-    Input Layer: Accepts 50 selected features (timesteps)
-
-    CNN Layers:
-
-        Conv1D (32 filters, kernel_size=3)
-
-        Batch Normalization
-
-        Max Pooling
-
-        Dropout (0.3)
-
-    LSTM Layer: 32 units with dropout (0.4)
-
-    Dense Layers:
-
-        Dense (32 units) with L2 regularization
-
-        Batch Normalization
-
-        Dropout (0.5)
-
-    Output Layer: Softmax activation for multi-class classification
-
-Performance
-
-The model achieves:
-
-    Test Accuracy: 94.8%
-
-    Precision: 97% (weighted average)
-
-    Recall: 96% (weighted average)
-
-    F1-Score: 96% (weighted average)
-
-Installation
-Prerequisites
-
-    Python 3.8+
-
-    Node.js 14+
-
-    TensorFlow 2.x
-
-Backend Setup
-
-    Clone the repository
-
-    Create a virtual environment:
-    bash
-
+# Create a virtual environment
 python -m venv venv
+
+# Activate the virtual environment
 source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate     # Windows
 
-Install dependencies:
-bash
-
+# Install backend dependencies
 cd backend
 pip install -r requirements.txt
+```
 
-Download the pre-trained models and place them in the backend directory:
-
-    best_optimized_cnn_lstm.h5
-
-    scaler_optimized.pkl
-
-    label_encoder_optimized.pkl
-
-    selected_indices.pkl
+Download and place these files into the `backend/` directory:
+- `best_optimized_cnn_lstm.h5`
+- `scaler_optimized.pkl`
+- `label_encoder_optimized.pkl`
+- `selected_indices.pkl`
 
 Run the FastAPI server:
-bash
 
-    uvicorn main:app --reload
+```bash
+uvicorn main:app --reload
+```
 
-Frontend Setup
+---
 
-    Navigate to the frontend directory:
-    bash
+## ⚙️ Frontend Setup
 
+```bash
+# Navigate to the frontend directory
 cd frontend
 
-Install dependencies:
-bash
-
+# Install frontend dependencies
 npm install
 
-Run the development server:
-bash
+# Run the development server
+npm run dev
+```
 
-    npm run dev
+---
 
-API Endpoints
+## 🌐 API Endpoints
 
-    POST /start-capture: Starts live packet capture
+| Method | Endpoint | Description |
+|:------:|:---------|:------------|
+| `POST` | `/start-capture` | Start live packet capture |
+| `GET`  | `/capture-status` | Get current capture status |
+| `POST` | `/predict-csv` | Upload CSV for predictions |
+| `WS`   | `/ws/packets` | WebSocket for real-time packet updates |
+| `GET`  | `/health` | Health check endpoint |
 
-    GET /capture-status: Returns current capture status
+---
 
-    POST /predict-csv: Processes uploaded CSV file
+## 🎯 Usage
 
-    WS /ws/packets: WebSocket for real-time packet updates
+### Live Capture
+- Start capture via `/start-capture`.
+- Connect to WebSocket `/ws/packets` for real-time updates.
+- Captures up to 50 packets by default (configurable).
 
-    GET /health: Health check endpoint
+### CSV Processing
+- Upload a CSV to `/predict-csv`.
+- Receive attack predictions for each flow.
 
-Usage
-Live Capture
+---
 
-    Start the capture via /start-capture endpoint
+## 🏋️‍♂️ Model Training (Optional)
 
-    Connect to the WebSocket at /ws/packets for real-time updates
+```bash
+# Ensure dataset is present at: data/resampled_dataset.csv
 
-    The system will capture up to 50 packets by default (configurable)
+# Run the training script
+python train_model.py
+```
+The script will:
+- Preprocess data
+- Perform feature selection
+- Train the CNN-LSTM model
+- Save the model and artifacts
 
-CSV Processing
+---
 
-    Upload a CSV file containing network flow data to /predict-csv
+## ⚙️ Configuration
+Configuration parameters in `backend/main.py`:
 
-    The system will return predictions for each flow
+- `MAX_PACKETS`: Maximum packets to capture in live mode (default: 50)
+- `FEATURES`: List of 78 CICIDS2017 features
+- `LABEL_MAPPING`: Mapping for attack categories
 
-Training the Model
+---
 
-To retrain the model:
+## 🔮 Future Improvements
+- Advanced feature extraction for live packets
+- Support for additional protocols
+- Better handling of class imbalance
+- Enhanced frontend dashboard
+- Model explainability with visualization tools
 
-    Ensure you have the dataset at data/resampled_dataset.csv
+---
 
-    Run the training script:
-    bash
+## 📜 License
+This project is licensed under the **MIT License**.  
+See the [LICENSE](./LICENSE) file for more details.
 
-    python train_model.py
+---
 
-    The script will:
-
-        Preprocess the data
-
-        Perform feature selection
-
-        Train the CNN-LSTM model
-
-        Save the model and artifacts
-
-Configuration
-
-Key configuration parameters in backend/main.py:
-
-    MAX_PACKETS: Maximum packets to capture in live mode (default: 50)
-
-    FEATURES: List of 78 CICIDS2017 features
-
-    LABEL_MAPPING: Mapping of attack categories
-
-License
-
-This project is licensed under the MIT License. See the LICENSE file for details.
-Future Improvements
-
-    Implement more sophisticated feature extraction for live packets
-
-    Add support for additional network protocols
-
-    Improve handling of class imbalance
-
-    Develop a more comprehensive frontend dashboard
-
-    Add model explainability features
+# 🚀 Ready to Detect, Defend, and Secure!
