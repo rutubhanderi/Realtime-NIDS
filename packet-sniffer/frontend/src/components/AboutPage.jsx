@@ -20,7 +20,7 @@ export default function AboutPage() {
           <h2 className="text-xl font-bold mb-4 text-gray-100">About NetSift</h2>
 
           <p className="mb-6 text-gray-300">
-            NetSift is a network security monitoring tool that uses advanced machine learning to detect and classify potential security threats in real-time.
+            NetSift is a network security monitoring tool that uses advanced deep learning to detect and classify potential security threats in real-time.
             Built on the CICIDS2017 dataset architecture, it provides comprehensive packet analysis, visualization, and reporting capabilities.
           </p>
 
